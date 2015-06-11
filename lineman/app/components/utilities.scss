@@ -149,6 +149,8 @@ label.label-with-details{
   @include fontHelveticaMedium;
   color: $grey-on-white;
   margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  text-transform: uppercase;
 }
 
 .lmo-btn-group-right{
