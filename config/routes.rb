@@ -192,6 +192,7 @@ Loomio::Application.routes.draw do
 
   get 'start_group' => 'start_group#new'
   post 'start_group' => 'start_group#create'
+
   resources :groups, path: 'g', only: [:create, :edit, :update] do
     member do
       get :export
@@ -392,6 +393,10 @@ Loomio::Application.routes.draw do
   end
 
   constraints(GroupSubdomainConstraint) do
+    get '/d/:id(/:slug)', to: 'redirect#discussion_key'
+    get '/g/:id(/:slug)', to: 'redirect#group_key'
+    get '/m/:id(/:slug)', to: 'redirect#motion_key'
+
     get '/about' => redirect('https://www.loomio.org/about')
     get '/privacy' => redirect('https://www.loomio.org/privacy')
     get '/purpose' => redirect('https://www.loomio.org/purpose')
@@ -413,9 +418,9 @@ Loomio::Application.routes.draw do
   get 'contact(/:destination)', to: 'contact_messages#new'
 
 
-  get '/discussions/:id', to: 'discussions_redirect#show'
-  get '/groups/:id',      to: 'groups_redirect#show'
-  get '/motions/:id',     to: 'motions_redirect#show'
+  get '/discussions/:id', to: 'redirect#discussion'
+  get '/groups/:id',      to: 'redirect#group'
+  get '/motions/:id',     to: 'redirect#motion'
 
   get '/contributions'      => redirect('/crowd')
   get '/contributions/thanks' => redirect('/crowd')
@@ -441,6 +446,5 @@ Loomio::Application.routes.draw do
   get '/roadmap'    => redirect('https://trello.com/b/tM6QGCLH/loomio-roadmap')
   get '/community'  => redirect('https://www.loomio.org/g/WmPCB3IR/loomio-community')
   get '/timeline'   => redirect('http://www.tiki-toki.com/timeline/entry/313361/Loomio')
-
   get '/robots'     => 'robots#show'
 end
