@@ -1,19 +1,10 @@
 class Queries::VisibleMotions < Delegator
   def initialize(user: nil, groups: nil, group_ids: nil)
-    @user = user
+    @user = user || LoggedOutUser.new
+    @group_ids = group_ids.presence || Array(groups).map(&:id)
 
-    group_ids = []
-    if groups.present?
-      group_ids = Array(groups).map(&:id)
-    end
-
-    @relation = Motion.joins(:discussion => :group).merge(Group.published).preload(:discussion)
-
-    if @user.present?
-      @relation = @relation.joins("LEFT OUTER JOIN motion_readers mr ON mr.motion_id = motions.id AND mr.user_id = #{@user.id}")
-    end
-
-    @relation = Queries::VisibleDiscussions.apply_privacy_sql(user: @user, group_ids: group_ids, relation: @relation)
+    @relation = Motion.joins(discussion: :group).includes(:discussion).where('groups.archived_at IS NULL')
+    @relation = Queries::VisibleDiscussions.apply_privacy_sql(user: @user, group_ids: @group_ids, relation: @relation)
 
     super(@relation)
   end

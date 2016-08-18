@@ -101,8 +101,8 @@ describe Membership do
     end
 
     it 'can change its volume' do
-      @membership.set_volume! :loud
-      expect(@membership.reload.volume.to_sym).to eq :loud
+      @membership.set_volume! :quiet
+      expect(@membership.reload.volume.to_sym).to eq :quiet
     end
   end
 end

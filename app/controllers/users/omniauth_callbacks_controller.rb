@@ -1,7 +1,6 @@
 class Users::OmniauthCallbacksController < Devise::OmniauthCallbacksController
   skip_before_action :verify_authenticity_token
   include OmniauthAuthenticationHelper
-  include InvitationsHelper
 
   def all
     auth_params = ActionController::Parameters.new(request.env["omniauth.auth"])
@@ -15,17 +14,15 @@ class Users::OmniauthCallbacksController < Devise::OmniauthCallbacksController
       :first_name,
       :last_name,
       :verified,
-      urls: [:Website, :Twitter, :Facebook])
+      urls: [:GitHub, :Blog, :Website, :Twitter, :Facebook])
     auth = OmniauthIdentity.from_omniauth(auth_params[:provider], auth_params[:uid], user_info)
 
     if auth.user
-      Measurement.increment('omniauth.success.recognised')
       sign_in_and_redirect(auth.user)
     else
       save_omniauth_authentication_to_session(auth)
 
       if user = User.find_by_email(auth.email.to_s)
-        Measurement.increment('omniauth.success.recognised_first_auth')
         sign_in_and_redirect(user)
 
       # at some point in the future we can remove this elsif #IAMSORRY4THIS
@@ -39,12 +36,10 @@ class Users::OmniauthCallbacksController < Devise::OmniauthCallbacksController
           group.add_member!(user)
           sign_in_and_redirect(user)
         else
-          Measurement.increment('omniauth.success.unrecognised_first_auth')
           redirect_to login_or_signup_path_for_email(auth.email)
         end
       # end block that could be removed
       else
-        Measurement.increment('omniauth.success.unrecognised_first_auth')
         redirect_to login_or_signup_path_for_email(auth.email)
       end
     end
@@ -52,8 +47,8 @@ class Users::OmniauthCallbacksController < Devise::OmniauthCallbacksController
 
   alias_method :google, :all
   alias_method :facebook, :all
-  alias_method :browser_id, :all
   alias_method :twitter, :all
+  alias_method :github, :all
 
   private
   def sign_in_and_redirect(user)

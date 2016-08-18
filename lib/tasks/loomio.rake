@@ -1,25 +1,26 @@
 namespace :loomio do
-  task tail_call: :environment do
-    RubyVM::InstructionSequence.compile_option = {
-      :tailcall_optimization => true,
-      :trace_instruction => false
-    }
+  task :version do
+    puts Loomio::Version.current
   end
 
-  task send_proposal_closing_soon: :environment do
-    Delayed::Job.enqueue ProposalsClosingSoonJob.new
-  end
-
-  task close_lapsed_motions: :environment do
+  task hourly_tasks: :environment do
     MotionService.close_all_lapsed_motions
+    SendMissedYesterdayEmailJob.perform_later
+    ResendIgnoredInvitationsJob.perform_later
+    ProposalsClosingSoonJob.perform_later
+    LocateUsersAndGroupsJob.perform_later
   end
 
-  task send_missed_yesterday_email: :environment do
-    SendMissedYesterdayEmail.to_subscribers!
+  # http://stackoverflow.com/a/9835162
+  task weekly_tasks: :environment do
+    if Time.now.monday?
+      SendAnalyticsEmailJob.perform_later
+    end
   end
 
-  task generate_error: :environment do
-    raise "Testing error reporting for rake tasks. Chill, no action requied if you see this"
+  task resend_ignored_invitations: :environment do
+    InvitationService.resend_ignored(send_count: 1, since: 1.day.ago)
+    InvitationService.resend_ignored(send_count: 2, since: 3.days.ago)
   end
 
   task refresh_likes: :environment do
@@ -28,6 +29,33 @@ namespace :loomio do
     Comment.find_each do |c|
       progress_bar.increment
       c.refresh_liker_ids_and_names!
+    end
+  end
+
+  task refresh_comment_versions: :environment do
+    progress_bar = ProgressBar.create(format: "(\e[32m%c/%C\e[0m) %a |%B| \e[31m%e\e[0m ", progress_mark: "\e[32m/\e[0m", total: Comment.count )
+
+    Comment.find_each(batch_size: 200) do |c|
+      progress_bar.increment
+      c.update_versions_count
+    end
+  end
+
+  task refresh_discussion_versions: :environment do
+    progress_bar = ProgressBar.create(format: "(\e[32m%c/%C\e[0m) %a |%B| \e[31m%e\e[0m ", progress_mark: "\e[32m/\e[0m", total: Discussion.count )
+
+    Discussion.find_each(batch_size: 200) do |d|
+      progress_bar.increment
+      d.update_versions_count
+    end
+  end
+
+  task refresh_public_discussions_count: :environment do
+    progress_bar = ProgressBar.create(format: "(\e[32m%c/%C\e[0m) %a |%B| \e[31m%e\e[0m ", progress_mark: "\e[32m/\e[0m", total: Group.count )
+
+    Group.find_each(batch_size: 200) do |g|
+      progress_bar.increment
+      g.update_public_discussions_count
     end
   end
 
@@ -58,5 +86,20 @@ namespace :loomio do
       puts "measured #{date}"
       date = date + 1.day
     end
+  end
+
+  task update_blog_stories: :environment do
+    rss = SimpleRSS.parse open('http://blog.loomio.org/category/stories/feed/')
+    BlogStory.destroy_all
+    rss.items.each do |item|
+      BlogStory.create(title: item[:title],
+                       url: item[:link],
+                       image_url: item[:media_content_url].try(:gsub, "http://", "https://"),
+                       published_at: item[:pubDate])
+    end
+  end
+
+  task notify_clients_of_update: :environment do
+    MessageChannelService.publish({ version: Loomio::Version.current }, to: GlobalMessageChannel.instance)
   end
 end

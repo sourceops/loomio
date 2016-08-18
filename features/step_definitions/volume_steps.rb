@@ -4,7 +4,6 @@ Given(/^Loud Larry is following everything in the group by email$/) do
                                    email_missed_yesterday: false,
                                    email_on_participation: false,
                                    email_when_proposal_closing_soon: false)
-
   @group.add_member!(@loud_larry).set_volume!(:loud)
 end
 
@@ -36,6 +35,17 @@ Given(/^Mute megan mutes everything\.$/) do
                                    email_when_mentioned: true,
                                    email_when_proposal_closing_soon: false)
   @group.add_member!(@mute_megan).set_volume!(:mute)
+end
+
+Given(/^Hermit Harry turns off all emails\.$/) do
+  @hermit_harry = FactoryGirl.create(:user,
+                                     username: 'harry',
+                                     name: 'Hermit Harry',
+                                     email_missed_yesterday: false,
+                                     email_on_participation: false,
+                                     email_when_mentioned: false,
+                                     email_when_proposal_closing_soon: false)
+  @group.add_member!(@hermit_harry).set_volume!(:mute)
 end
 
 Given(/^Closing Soonsan mutes everything but wants to hear when proposals are closing and when mentioned\.$/) do
@@ -112,12 +122,14 @@ Given(/^I am autofollowing new discussions in my group$/) do
   @user.memberships.find_by_group_id(@group.id).set_volume! :loud
 end
 
-When(/^I comment in the discussion$/) do
+When(/^I comment in the discussion I'm following on participation$/) do
+  @user.update_attribute(email_on_participation: true)
   @comment = FactoryGirl.build(:comment, discussion: @discussion, author: @user)
   CommentService.create(comment: @comment, actor: @user)
 end
 
-When(/^I like a comment in the discussion$/) do
+When(/^I like a comment in the discussion I'm following on participation$/) do
+  @user.update_attribute(email_on_participation: true)
   @comment = FactoryGirl.create(:comment, discussion: @discussion)
   CommentService.like(comment: @comment, actor: @user)
 end
@@ -381,5 +393,11 @@ end
 When(/^I mention Mute Megan$/) do
   @discussion = FactoryGirl.create :discussion, group: @group
   comment = FactoryGirl.build(:comment, author: @user, discussion: @discussion, body: 'hi @megan')
+  CommentService.create(comment: comment, actor: @user)
+end
+
+When(/^I mention Hermit Harry$/) do
+  @discussion = FactoryGirl.create :discussion, group: @group
+  comment = FactoryGirl.build(:comment, author: @user, discussion: @discussion, body: 'hi @harry')
   CommentService.create(comment: comment, actor: @user)
 end

@@ -1,11 +1,15 @@
 class Membership < ActiveRecord::Base
   include HasVolume
   include HasTimeframe
+  include HasExperiences
 
   validates_presence_of :group, :user, :volume
   validates_uniqueness_of :user_id, scope: :group_id
 
-  belongs_to :group, counter_cache: true
+  belongs_to :group
+  update_counter_cache :group, :memberships_count
+  update_counter_cache :group, :admin_memberships_count
+
   belongs_to :user, counter_cache: true
   belongs_to :inviter, class_name: 'User'
   has_many :events, as: :eventable, dependent: :destroy
@@ -27,6 +31,8 @@ class Membership < ActiveRecord::Base
   delegate :name, :full_name, to: :group, prefix: :group
   delegate :admins, to: :group, prefix: :group
   delegate :name, to: :inviter, prefix: :inviter, allow_nil: true
+
+  before_create :set_volume
 
   after_destroy :leave_subgroups_of_hidden_parents
 
@@ -55,12 +61,24 @@ class Membership < ActiveRecord::Base
     return user_name ? user_name : user_email
   end
 
+  def discussion_readers
+    DiscussionReader.
+      joins(:discussion).
+      where('discussions.group_id = ?', group_id).
+      where('discussion_readers.user_id = ?', user_id)
+  end
+
   private
+
   def leave_subgroups_of_hidden_parents
     return if group.nil? #necessary if group is missing (as in case of production data)
     return unless group.is_hidden_from_public?
     group.subgroups.each do |subgroup|
       subgroup.memberships.where(user_id: user.id).destroy_all
     end
+  end
+
+  def set_volume
+    self.volume = user.default_membership_volume
   end
 end

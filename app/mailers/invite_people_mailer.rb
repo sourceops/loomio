@@ -1,37 +1,38 @@
 class InvitePeopleMailer < BaseMailer
-  def to_start_group(invitation, sender_email)
+  layout 'invite_people_mailer'
+
+  def to_start_group(invitation:,
+                     sender_email: ,
+                     locale: )
+
     @invitation = invitation
-    mail to: invitation.recipient_email,
-         reply_to: sender_email,
-         subject: t("email.to_start_group.subject", group_name: @invitation.invitable_name)
+    send_single_mail to:       @invitation.recipient_email,
+                     locale:   locale,
+                     reply_to: sender_email,
+                     subject_key: "email.to_start_group.subject",
+                     subject_params: {group_name: @invitation.invitable_name}
   end
 
-  def to_join_group(invitation, sender, message_body)
+  def to_join_group(invitation:, locale:, subject_key: "email.to_join_group.subject")
     @invitation = invitation
-    @message_body = message_body
-    mail to: invitation.recipient_email,
-         from: from_user_via_loomio(sender),
-         reply_to: sender.name_and_email,
-         subject: t("email.to_join_group.subject", member: @invitation.inviter.name, group_name: @invitation.invitable_name)
+    @message_body = invitation.message
+    send_single_mail to:   @invitation.recipient_email,
+                     locale: locale,
+                     from: from_user_via_loomio(invitation.inviter),
+                     reply_to: invitation.inviter.name_and_email,
+                     subject_key: subject_key,
+                     subject_params: {member: @invitation.inviter.name, group_name: @invitation.invitable_name}
+    invitation.increment!(:send_count)
   end
-
-  #def to_join_discussion(invitation, sender, message)
-    #@invitation = invitation
-    #@discussion = invitation.invitable
-    #@inviter = invitation.inviter
-    #@message = message
-    #mail to: invitation.recipient_email,
-         #from: from_user_via_loomio(sender),
-         #reply_to: sender.name_and_email,
-         #subject: t("email.to_join_discussion.subject", who: @invitation.inviter.name)
-  #end
 
   def after_membership_request_approval(invitation, sender_email, message_body)
     @invitation = invitation
     @group = @invitation.group
     @message_body = message_body
-    mail to: invitation.recipient_email,
-         reply_to: sender_email,
-         subject: "#{email_subject_prefix(@group.full_name)} " + t("email.group_membership_approved.subject")
+    send_single_mail to:       @invitation.recipient_email,
+                     locale:   I18n.locale,
+                     reply_to: sender_email,
+                     subject_key: "email.group_membership_approved.subject",
+                     subject_params: {group_name: @group.full_name}
   end
 end

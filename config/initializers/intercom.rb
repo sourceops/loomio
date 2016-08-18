@@ -7,10 +7,10 @@ if Rails.application.secrets.intercom_app_id
     #
     config.app_id = Rails.application.secrets.intercom_app_id
 
-    # == Intercom secret key 
-    # This is required to enable secure mode, you can find it on your Intercom 
+    # == Intercom secret key
+    # This is required to enable secure mode, you can find it on your Intercom
     # "security" configuration page.
-    # 
+    #
     config.api_secret = Rails.application.secrets.intercom_app_secret
 
     # == Intercom API Key
@@ -29,7 +29,7 @@ if Rails.application.secrets.intercom_app_id
     # If it is `current_user` or `@user`, then you can ignore this
     #
     # config.user.current = Proc.new { current_user }
-    
+
     # == User model class
     # The class which defines your user model
     #
@@ -46,19 +46,21 @@ if Rails.application.secrets.intercom_app_id
     # }
 
     config.user.custom_data = {
-        is_coordinator: :is_group_admin?
+        is_coordinator: :is_group_admin?,
+        angular_ui: :angular_ui_enabled?,
+        locale: :locale
     }
 
     # == User -> Company association
     # A Proc that given a user returns an array of companies
     # that the user belongs to.
-    # 
+    #
     config.user.company_association = Proc.new { |user| user.parent_groups.to_a }
     # config.user.company_association = Proc.new { |user| [user.company] }
 
     # == Current company method/variable
     # The method/variable that contains the current company for the current user,
-    # in your controllers. 'Companies' are generic groupings of users, so this 
+    # in your controllers. 'Companies' are generic groupings of users, so this
     # could be a company, app or group.
 
     # only send the group through if user is a member
@@ -79,11 +81,7 @@ if Rails.application.secrets.intercom_app_id
         discussions: :organisation_discussions_count,
         proposals: :organisation_motions_count,
         description: :description,
-        group_request_description: :group_request_description,
-        financial_nature: :financial_nature,
         is_referral: :is_referral,
-        visible_to: :visible_to,
-        plan: :payment_plan,
         cohort_id: :cohort_id,
         key: :key
     }
@@ -91,7 +89,7 @@ if Rails.application.secrets.intercom_app_id
     # == Company Plan name
     # This is the name of the plan a company is currently paying (or not paying) for.
     # e.g. Messaging, Free, Pro, etc.
-    #  
+    #
     # config.company.plan = Proc.new { |current_company| current_company.plan.name }
 
     # == Company Monthly Spend
@@ -100,16 +98,16 @@ if Rails.application.secrets.intercom_app_id
     #
     # config.company.monthly_spend = Proc.new { |current_company| current_company.plan.price }
     # config.company.monthly_spend = Proc.new { |current_company| (current_company.plan.price - current_company.subscription.discount) }
-   
+
     # == Inbox Style
     # This enables the Intercom inbox which allows your users to read their
-    # past conversations with your app, as well as start new ones. It is 
+    # past conversations with your app, as well as start new ones. It is
     # disabled by default.
     #   * :default shows a small tab with a question mark icon on it
     #   * :custom attaches the inbox open event to an anchor with an
     #             id of #Intercom.
     #
-    # config.inbox.style = :default 
+    # config.inbox.style = :default
     config.inbox.style = :custom
   end
 end

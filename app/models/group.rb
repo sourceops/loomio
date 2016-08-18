@@ -1,23 +1,19 @@
 class Group < ActiveRecord::Base
   include ReadableUnguessableUrls
-  include BetaFeatures
   include HasTimeframe
-  AVAILABLE_BETA_FEATURES = ['discussion_iframe']
+  include MessageChannel
 
   class MaximumMembershipsExceeded < Exception
   end
 
-  acts_as_tree
-
-  PAYMENT_PLANS = ['pwyc', 'subscription', 'manual_subscription', 'undetermined']
   DISCUSSION_PRIVACY_OPTIONS = ['public_only', 'private_only', 'public_or_private']
   MEMBERSHIP_GRANTED_UPON_OPTIONS = ['request', 'approval', 'invitation']
 
   validates_presence_of :name
-  validates_inclusion_of :payment_plan, in: PAYMENT_PLANS
   validates_inclusion_of :discussion_privacy_options, in: DISCUSSION_PRIVACY_OPTIONS
   validates_inclusion_of :membership_granted_upon, in: MEMBERSHIP_GRANTED_UPON_OPTIONS
   validates :name, length: { maximum: 250 }
+  validates :subscription, absence: true, if: :is_subgroup?
 
   validate :limit_inheritance
   validate :validate_parent_members_can_see_discussions
@@ -27,10 +23,7 @@ class Group < ActiveRecord::Base
   before_save :update_full_name_if_name_changed
   before_validation :set_discussions_private_only, if: :is_hidden_from_public?
 
-  include PgSearch
-  pg_search_scope :search_full_name, against: [:name, :description],
-    using: {tsearch: {dictionary: "english"}}
-
+  default_scope { includes(:default_group_cover) }
 
   scope :categorised_any, -> { where('groups.category_id IS NOT NULL') }
   scope :in_category, -> (category) { where(category_id: category.id) }
@@ -40,28 +33,13 @@ class Group < ActiveRecord::Base
 
   scope :parents_only, -> { where(parent_id: nil) }
 
-  scope :is_subscription, -> { where(is_commercial: true) }
-  scope :is_donation, -> { where('is_commercial = false or is_commercial IS NULL') }
-
   scope :sort_by_popularity, -> { order('memberships_count DESC') }
 
   scope :visible_to_public, -> { published.where(is_visible_to_public: true) }
   scope :hidden_from_public, -> { published.where(is_visible_to_public: false) }
   scope :created_by, -> (user) { where(creator_id: user.id) }
 
-  scope :visible_on_explore_front_page,
-        -> { visible_to_public.categorised_any.parents_only.
-             created_earlier_than(2.months.ago).
-             active_discussions_since(1.month.ago).
-             more_than_n_members(3).
-             more_than_n_discussions(3).
-             order('discussions.last_comment_at') }
-
-  scope :include_admins, -> { includes(:admins) }
-
-  scope :manual_subscription, -> { where(payment_plan: 'manual_subscription') }
-
-  scope :cannot_start_parent_group, -> { where(can_start_group: false) }
+  scope :explore_search, ->(query) { where("name ilike :q or description ilike :q", q: "%#{query}%") }
 
   # Engagement (Email Template) Related Scopes
   scope :more_than_n_members,     ->(count) { where('memberships_count > ?', count) }
@@ -76,15 +54,20 @@ class Group < ActiveRecord::Base
   }
 
   scope :active_discussions_since, ->(time) {
-    includes(:discussions).where('discussions.last_comment_at > ?', time).references(:discussions)
+    includes(:discussions).where('discussions.last_activity_at > ?', time).references(:discussions)
   }
 
   scope :created_earlier_than, lambda {|time| where('groups.created_at < ?', time) }
 
-  scope :engaged, -> { more_than_n_members(1).
-                       more_than_n_discussions(2).
-                       active_discussions_since(2.month.ago).
-                       parents_only }
+  scope :engaged, ->(since = 2.months.ago) {
+    more_than_n_members(1).
+    more_than_n_discussions(2).
+    active_discussions_since(since)
+  }
+
+  scope :with_analytics, ->(since = 1.month.ago) {
+    where(analytics_enabled: true).engaged(since).joins(:admin_memberships)
+  }
 
   scope :engaged_but_stopped, -> { more_than_n_members(1).
                                    more_than_n_discussions(2).
@@ -96,9 +79,6 @@ class Group < ActiveRecord::Base
                                              less_than_n_discussions(2).
                                              created_earlier_than(1.month.ago).
                                              parents_only }
-
-  scope :alphabetically, -> { order('full_name asc') }
-  scope :in_any_cohort, -> { where('cohort_id is not null') }
 
   has_one :group_request
 
@@ -137,10 +117,13 @@ class Group < ActiveRecord::Base
            as: :invitable,
            class_name: 'Invitation',
            dependent: :destroy
- 
+
   has_many :comments, through: :discussions
 
   after_initialize :set_defaults
+
+  after_create :set_is_referral
+  after_create :guess_cohort
 
   alias :users :members
 
@@ -155,6 +138,7 @@ class Group < ActiveRecord::Base
   belongs_to :category
   belongs_to :theme
   belongs_to :cohort
+  belongs_to :default_group_cover
 
   has_many :subgroups,
            -> { where(archived_at: nil).order(:name) },
@@ -168,34 +152,52 @@ class Group < ActiveRecord::Base
            class_name: 'Group',
            foreign_key: :parent_id
 
-  has_one :subscription, dependent: :destroy
+  belongs_to :subscription, dependent: :destroy
 
   delegate :include?, to: :users, prefix: true
   delegate :users, to: :parent, prefix: true
   delegate :members, to: :parent, prefix: true
   delegate :name, to: :parent, prefix: true
-  delegate :locale, to: :creator
 
   paginates_per 20
 
   has_attached_file    :cover_photo,
-                       styles: { desktop: "970x200#", card: "460x94#"},
-                       default_url: 'default-cover-photo.png'
-
+                       styles: {largedesktop: "1400x320#", desktop: "970x200#", card: "460x94#"},
+                       default_url: :default_cover_photo
   has_attached_file    :logo,
-                       styles: { card: "67x67", medium: "100x100" },
+                       styles: { card: "67x67#", medium: "100x100#" },
                        default_url: 'default-logo-:style.png'
 
   validates_attachment :cover_photo,
-    size: { in: 0..10.megabytes },
+    size: { in: 0..100.megabytes },
     content_type: { content_type: /\Aimage/ },
     file_name: { matches: [/png\Z/i, /jpe?g\Z/i, /gif\Z/i] }
 
   validates_attachment :logo,
-    size: { in: 0..10.megabytes },
+    size: { in: 0..100.megabytes },
     content_type: { content_type: /\Aimage/ },
     file_name: { matches: [/png\Z/i, /jpe?g\Z/i, /gif\Z/i] }
 
+  define_counter_cache(:motions_count)            { |group| group.discussions.published.sum(:motions_count) }
+  define_counter_cache(:closed_motions_count)     { |group| group.motions.closed.count }
+  define_counter_cache(:discussions_count)        { |group| group.discussions.published.count }
+  define_counter_cache(:public_discussions_count) { |group| group.discussions.visible_to_public.count }
+  define_counter_cache(:memberships_count)        { |group| group.memberships.count }
+  define_counter_cache(:admin_memberships_count)  { |group| group.admin_memberships.count }
+  define_counter_cache(:invitations_count)        { |group| group.invitations.count }
+  define_counter_cache(:proposal_outcomes_count)  { |group| group.motions.with_outcomes.count }
+
+  # default_cover_photo is the name of the proc used to determine the url for the default cover photo
+  # default_group_cover is the associated DefaultGroupCover object from which we get our default cover photo
+  def default_cover_photo
+    if is_subgroup?
+      self.parent.default_cover_photo
+    elsif self.default_group_cover
+      /^.*(?=\?)/.match(self.default_group_cover.cover_photo.url).to_s
+    else
+      'img/default-cover-photo.png'
+    end
+  end
 
   before_save :set_creator_if_blank
 
@@ -207,20 +209,16 @@ class Group < ActiveRecord::Base
 
   alias_method :real_creator, :creator
 
-  def members_can_raise_proposals
-    members_can_raise_motions
-  end
-
-  def members_can_raise_proposals=(value)
-    self.members_can_raise_motions = value
-  end
-
   def creator
     self.real_creator || admins.first || members.first
   end
 
   def creator_id
-    self[:creator_id] || creator.id
+    self[:creator_id] || creator.try(:id)
+  end
+
+  def locale
+    creator.try(:locale)
   end
 
   def coordinators
@@ -243,28 +241,12 @@ class Group < ActiveRecord::Base
     group_request.try(:admin_email)
   end
 
-  def voting_motions
-    motions.voting
-  end
-
-  def closed_motions
-    motions.closed
-  end
-
-  def motions_count
-    discussions.published.sum :motions_count
-  end
-
   def archive!
     self.update_attribute(:archived_at, DateTime.now)
     memberships.update_all(archived_at: DateTime.now)
     subgroups.each do |group|
       group.archive!
     end
-  end
-
-  def is_archived?
-    self.archived_at.present?
   end
 
   def unarchive!
@@ -281,32 +263,45 @@ class Group < ActiveRecord::Base
     is_subgroup? and parent.is_hidden_from_public?
   end
 
-  def visible_to=(term)
-    case term.to_s
-    when 'public'
+  # this method's a bit chunky. New class?
+  def group_privacy=(term)
+    case term
+    when 'open'
       self.is_visible_to_public = true
-      self.is_visible_to_parent_members = false
-    when 'parent_members'
+      self.discussion_privacy_options = 'public_only'
+
+      unless %w[approval request].include?(self.membership_granted_upon)
+        self.membership_granted_upon = 'approval'
+      end
+    when 'closed'
+      self.is_visible_to_public = true
+      self.membership_granted_upon = 'approval'
+      unless %w[private_only public_or_private].include?(self.discussion_privacy_options)
+        self.discussion_privacy_options = 'private_only'
+      end
+
+      # closed subgroup of hidden parent means parent members can seeee it!
+      if is_subgroup_of_hidden_parent?
+        self.is_visible_to_parent_members = true
+        self.is_visible_to_public = false
+      end
+    when 'secret'
       self.is_visible_to_public = false
-      self.is_visible_to_parent_members = true
-    when 'members'
-      self.is_visible_to_public = false
-      self.is_visible_to_parent_members = false
-      self.parent_members_can_see_discussions = false
       self.discussion_privacy_options = 'private_only'
       self.membership_granted_upon = 'invitation'
+      self.is_visible_to_parent_members = false
     else
-      raise "visible_to term not recognised: #{term}"
+      raise "group_privacy term not recognised: #{term}"
     end
   end
 
-  def visible_to
+  def group_privacy
     if is_visible_to_public?
-      'public'
-    elsif is_visible_to_parent_members?
-      'parent_members'
+      self.public_discussions_only? ? 'open' : 'closed'
+    elsif is_subgroup_of_hidden_parent? and is_visible_to_parent_members?
+      'closed'
     else
-      'members'
+      'secret'
     end
   end
 
@@ -335,7 +330,7 @@ class Group < ActiveRecord::Base
   end
 
   def membership_for(user)
-    memberships.where("group_id = ? AND user_id = ?", id, user.id).first
+    memberships.find_by(user_id: user.id)
   end
 
   def membership(user)
@@ -372,72 +367,25 @@ class Group < ActiveRecord::Base
     end
   end
 
-  def org_members_count
-    if is_subgroup?
-      parent.org_members_count
-    else
-      Membership.active.where(group_id: [id, subgroups.pluck(:id)].flatten).pluck(:user_id).uniq.count
-    end
-  end
-
-  def org_max_size
-    if is_subgroup?
-      parent.org_max_size
-    else
-      max_size
-    end
-  end
-
   def add_member!(user, inviter=nil)
-    find_or_create_membership(user, inviter)
-  end
-
-  def add_members!(users, inviter=nil)
-    users.map do |user|
-      add_member!(user, inviter)
-    end
-  end
-
-  def add_admin!(user, inviter = nil)
-    membership = find_or_create_membership(user, inviter)
-    membership.make_admin! && save
-    membership
-  end
-
-  def find_or_create_membership(user, inviter)
     begin
-      Membership.find_or_create_by(user_id: user.id, group_id: id) do |m|
-        m.group = self
-        m.user = user
-        m.inviter = inviter
-      end
+      save!
+      memberships.find_or_create_by(user: user) { |m| m.inviter = inviter }
     rescue ActiveRecord::RecordNotUnique
       retry
     end
   end
 
-  def has_member?(user)
-    memberships.where(user_id: user.id).any?
+  def add_members!(users, inviter=nil)
+    users.map { |user| add_member!(user, inviter) }
   end
 
-  def has_member_with_email?(email)
-    members.where(email: email).any?
-  end
-
-  def has_membership_request_with_email?(email)
-    membership_requests.where(email: email).any?
-  end
-
-  def members_count
-    members.count
-  end
-
-  def is_setup?
-    setup_completed_at.present?
-  end
-
-  def mark_as_setup!
-    update_attribute(:setup_completed_at, Time.zone.now.utc)
+  def add_admin!(user, inviter = nil)
+    add_member!(user, inviter).tap do |m|
+      m.make_admin!
+      update(creator: user) if creator.blank?
+      reload
+    end
   end
 
   def update_full_name_if_name_changed
@@ -454,33 +402,8 @@ class Group < ActiveRecord::Base
     self.full_name = calculate_full_name
   end
 
-  def has_subscription_plan?
-    subscription.present?
-  end
-
-  def subscription_plan
-    subscription.amount
-  end
-
-  def has_manual_subscription?
-    payment_plan == 'manual_subscription'
-  end
-
-  def is_paying?
-    (payment_plan == 'manual_subscription') ||
-    (subscription.present? && subscription.amount > 0)
-  end
-
-  def group_request_description
-    group_request.try :description
-  end
-
   def parent_or_self
-    if parent.present?
-      parent
-    else
-      self
-    end
+    parent || self
   end
 
   def organisation_id
@@ -488,7 +411,7 @@ class Group < ActiveRecord::Base
   end
 
   def organisation_discussions_count
-    Group.where("parent_id = ? OR (parent_id IS NULL AND id = ?)", parent_or_self.id, parent_or_self.id).sum(:discussions_count)
+    Group.where("parent_id = ? OR (parent_id IS NULL AND groups.id = ?)", parent_or_self.id, parent_or_self.id).sum(:discussions_count)
   end
 
   def organisation_motions_count
@@ -499,12 +422,8 @@ class Group < ActiveRecord::Base
     [parent_or_self.id, parent_or_self.subgroup_ids].flatten
   end
 
-  def has_subdomain?
-    if is_subgroup?
-      parent.has_subdomain?
-    else
-      subdomain.present?
-    end
+  def id_and_subgroup_ids
+    Array(id) | subgroup_ids
   end
 
   def subdomain
@@ -523,15 +442,8 @@ class Group < ActiveRecord::Base
     end
   end
 
-  def financial_nature
-    case is_commercial
-    when nil then 'undefined'
-    when false then 'non-commercial'
-    when true then 'commercial'
-    end
-  end
-
   private
+
   def set_discussions_private_only
     self.discussion_privacy_options = 'private_only'
   end
@@ -580,9 +492,23 @@ class Group < ActiveRecord::Base
     end
   end
 
+  def set_is_referral
+    if creator && creator.groups.size > 0
+      update_attribute(:is_referral, true)
+    end
+  end
+
   def set_defaults
-    self.discussion_privacy_options ||= 'public_or_private'
+    self.is_visible_to_public ||= false
+    self.discussion_privacy_options ||= 'private_only'
     self.membership_granted_upon ||= 'approval'
+  end
+
+  def guess_cohort
+    if self.cohort_id.blank?
+      cohort_id = Group.where('cohort_id is not null').order('cohort_id desc').first.try(:cohort_id)
+      self.update_attribute(:cohort_id, cohort_id) if cohort_id
+    end
   end
 
   def calculate_full_name
@@ -597,9 +523,5 @@ class Group < ActiveRecord::Base
     if parent_id.present?
       errors[:base] << "Can't set a subgroup as parent" unless parent.parent_id.nil?
     end
-  end
-
-  def self.with_one_coordinator
-    published.select{ |g| g.admins.count == 1 }
   end
 end

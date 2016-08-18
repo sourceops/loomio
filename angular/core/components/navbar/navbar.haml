@@ -1,0 +1,20 @@
+%header
+  %md_toolbar
+    .md-toolbar-tools.lmo-relative
+      .navbar__left
+        %md_icon_button.navbar__sidenav-toggle{ng-show: "isLoggedIn()", ng-click: "toggleSidebar()", aria-label: "{{ 'navbar.toggle_sidebar' | translate }}"}
+          %md_icon.fa.fa-lg.fa-bars
+
+      .navbar__middle
+        %a{href: "/"}
+          .navbar__logo-container
+            %img.navbar__logo{src: "/img/logo.png"}
+
+      .navbar__right
+        %navbar_search{ng-show: "isLoggedIn()"}
+
+        %notifications{ng-show: "isLoggedIn()"}
+
+        .buh{ng-if: "!isLoggedIn()"}
+          %button.navbar__sign-in{ng-click: "signIn()"}>
+            %span{translate: "navbar.sign_in"}

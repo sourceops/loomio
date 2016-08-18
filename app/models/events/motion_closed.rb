@@ -1,16 +1,7 @@
 class Events::MotionClosed < Event
   def self.publish!(motion)
-    event = create!(kind: 'motion_closed', eventable: motion)
-
-    UsersToEmailQuery.motion_closed(motion).find_each do |user|
-      ThreadMailer.delay.motion_closed(user, event)
-    end
-
-    event.notify! motion.author
-    event
-  end
-
-  def motion
-    eventable
+    create(kind: 'motion_closed',
+           eventable: motion,
+           discussion_id: motion.discussion_id).tap { |e| EventBus.broadcast('motion_closed_event', e, motion.author) }
   end
 end

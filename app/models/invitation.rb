@@ -9,9 +9,10 @@ class Invitation < ActiveRecord::Base
   extend FriendlyId
   friendly_id :token
   belongs_to :inviter, class_name: User
-  belongs_to :accepted_by, class_name: User
   belongs_to :invitable, polymorphic: true
   belongs_to :canceller, class_name: User
+
+  update_counter_cache :invitable, :invitations_count
 
   validates_presence_of :invitable, :intent
   validates_inclusion_of :invitable_type, :in => ['Group', 'Discussion']
@@ -19,59 +20,30 @@ class Invitation < ActiveRecord::Base
   scope :chronologically, -> { order('id asc') }
   before_save :ensure_token_is_present
 
+  delegate :name, to: :inviter, prefix: true, allow_nil: true
+
   scope :not_cancelled,  -> { where(cancelled_at: nil) }
-  scope :pending, -> { not_cancelled.where(accepted_at: nil) }
+  scope :pending, -> { not_cancelled.single_use.where(accepted_at: nil) }
+  scope :shareable, -> { not_cancelled.where(single_use: false) }
+  scope :single_use, -> { not_cancelled.where(single_use: true) }
+  scope :ignored, -> (send_count, since) { pending.where(send_count: send_count).where('created_at < ?', since) }
 
-
-  def recipient_first_name
-    recipient_name.split(' ').first
-  end
-
-  def inviter_name
-    inviter.name
-  end
-
-  def group
-    case invitable_type
-    when 'Group'
-      invitable
-    when 'Discussion'
-      invitable.group
-    end
-  end
+  alias :group :invitable
 
   def invitable_name
-    case invitable_type
-    when 'Group'
-      invitable.full_name
-    when 'Discussion'
-      invitable.title
-    end
+    invitable&.full_name
   end
 
-  def group_request_admin_name
-    if invitable_type == 'Group'
-      invitable.group_request.admin_name
-    end
-  end
-
-  def cancel!(args)
-    self.canceller = args[:canceller]
-    self.cancelled_at = DateTime.now
-    self.save!
+  def cancel!(args = {})
+    update!(args.slice(:canceller).merge(cancelled_at: DateTime.now))
   end
 
   def cancelled?
-    if invitable.blank?
-      Measurement.increment('invitation_to_deleted_invitable')
-      true
-    else
-      cancelled_at.present?
-    end
+    invitable.blank? || cancelled_at
   end
 
   def accepted?
-    accepted_by.present?
+    accepted_at.present?
   end
 
   def to_start_group?
@@ -82,21 +54,19 @@ class Invitation < ActiveRecord::Base
     intent == 'join_group'
   end
 
-  def to_join_discussion?
-    intent == 'join_discussion'
+  def is_pending?
+    !cancelled? && !accepted?
   end
 
   private
   def ensure_token_is_present
-    unless self.token.present?
-      set_unique_token
-    end
+    set_unique_token unless self.token
   end
 
   def set_unique_token
     begin
       token = SecureRandom.hex.slice(0, 20)
-    end while self.class.where(:token => token).exists?
+    end while self.class.where(token: token).exists?
     self.token = token
   end
 

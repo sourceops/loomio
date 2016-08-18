@@ -1,0 +1,17 @@
+mentio-menu {
+  display: none;
+  z-index: 10000 !important;
+}
+
+.mentionable-name {
+  @include fontMedium;
+  line-height: 16px;
+}
+
+.mentionable-username {
+  @include fontSmall;
+}
+
+.mentionable-content {
+  display: table-cell;
+}

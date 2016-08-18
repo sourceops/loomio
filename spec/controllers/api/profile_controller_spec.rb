@@ -2,11 +2,47 @@ require 'rails_helper'
 describe API::ProfileController do
 
   let(:user) { create :user }
+  let(:group) { create :group }
   let(:another_user) { create :user }
   let(:user_params) { { name: "new name", email: "new@email.com" } }
 
   before do
     sign_in user
+  end
+
+  describe 'show' do
+    it 'returns the user json' do
+      get :show, id: another_user.key, format: :json
+      json = JSON.parse(response.body)
+      expect(json.keys).to include *(%w[users])
+      expect(json['users'][0].keys).to include *(%w[
+        id
+        key
+        name
+        username
+        avatar_initials
+        avatar_kind
+        avatar_url
+        profile_url
+        time_zone
+        search_fragment
+        label])
+      expect(json['users'][0].keys).to_not include 'email'
+      expect(json['users'][0]['name']).to eq another_user.name
+    end
+
+    it 'can fetch a user by username' do
+      get :show, id: another_user.username, format: :json
+      json = JSON.parse(response.body)
+      expect(json['users'][0]['username']).to eq another_user.username
+    end
+
+    it 'does not return a deactivated user' do
+      another_user.update deactivated_at: 1.day.ago
+      get :show, id: another_user.key, format: :json
+      expect(response.status).to eq 403
+      expect(JSON.parse(response.body)['exception']).to eq 'CanCan::AccessDenied'
+    end
   end
 
   describe 'update_profile' do
@@ -25,6 +61,27 @@ describe API::ProfileController do
         json = JSON.parse(response.body)
         user_emails = json['users'].map { |v| v['email'] }
         expect(user_emails).to include user_params[:email]
+      end
+    end
+  end
+
+  describe 'set_volume' do
+
+    context 'success' do
+      it "sets a default volume for all of a user's new memberships" do
+        post :set_volume, volume: "quiet", format: :json
+        group.add_member! user
+        membership = group.membership_for(user)
+        expect(user.default_membership_volume).to eq "quiet"
+        expect(membership.volume).to eq "quiet"
+      end
+
+      it "sets the volume for all of a user's current memberships" do
+        group.add_member! user
+        membership = group.membership_for(user)
+        post :set_volume, volume: "quiet", apply_to_all: true, format: :json
+        expect(user.default_membership_volume).to eq "quiet"
+        expect(membership.reload.volume).to eq "quiet"
       end
     end
 
@@ -108,6 +165,26 @@ describe API::ProfileController do
         expect(deactivation_response.body).to eq '(╯°□°)╯︵ ┻━┻'
         expect(deactivation_response.user).to eq user
       end
+    end
+  end
+
+  describe 'save_experience' do
+
+    it 'successfully saves an experience' do
+      post :save_experience, experience: :happiness
+      expect(response.status).to eq 200
+      expect(user.reload.experiences['happiness']).to eq true
+    end
+
+    it 'responds with forbidden when user is logged out' do
+      @controller.stub(:current_user).and_return(LoggedOutUser.new)
+      post :save_experience, experience: :happiness
+      expect(response.status).to eq 403
+    end
+
+    it 'responds with bad request when no experience is given' do
+      post :save_experience
+      expect(response.status).to eq 400
     end
   end
 

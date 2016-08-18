@@ -1,20 +1,6 @@
 class Events::NewDiscussion < Event
   def self.publish!(discussion)
-    event = create!(kind: 'new_discussion',
-                    eventable: discussion)
-
-    dr = DiscussionReader.for(discussion: discussion, user: discussion.author)
-    dr.set_volume_as_required!
-    dr.participate!
-
-    UsersToEmailQuery.new_discussion(discussion).find_each do |user|
-      ThreadMailer.delay.new_discussion(user, event)
-    end
-
-    event
-  end
-
-  def discussion
-    eventable
+    create(kind: 'new_discussion',
+           eventable: discussion).tap { |e| EventBus.broadcast('new_discussion_event', e) }
   end
 end

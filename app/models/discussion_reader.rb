@@ -4,8 +4,6 @@ class DiscussionReader < ActiveRecord::Base
   belongs_to :user
   belongs_to :discussion
 
-  scope :for_user, -> (user) { where(user_id: user.id) }
-
   def self.for(user: , discussion: )
     if (!user.nil?) and user.is_logged_in?
       begin
@@ -16,6 +14,16 @@ class DiscussionReader < ActiveRecord::Base
     else
       new(discussion: discussion)
     end
+  end
+
+  def self.for_model(model, actor = nil)
+    self.for(user: actor || model.author, discussion: model.is_a?(Discussion) ? model : model.discussion)
+  end
+
+  def author_thread_item!(time)
+    set_volume_as_required!
+    participate!
+    viewed! time
   end
 
   def set_volume_as_required!
@@ -36,21 +44,9 @@ class DiscussionReader < ActiveRecord::Base
     end
   end
 
-  def first_read?
-    last_read_at.blank?
-  end
-
-  def user_or_logged_out_user
-    user || LoggedOutUser.new
-  end
-
-  def unread_comments_count
-    #we count the discussion itself as a comment.. but it is comment 0
-    if last_read_at.blank?
-      discussion.comments_count.to_i + 1
-    else
-      discussion.comments_count.to_i - read_comments_count
-    end
+  def discussion_reader_volume
+    # Crazy James says: necessary in order to get a string back from the volume enum, rather than an integer
+    self.class.volumes.invert[self[:volume]]
   end
 
   def unread_items_count
@@ -65,74 +61,24 @@ class DiscussionReader < ActiveRecord::Base
     end
   end
 
-  def has_read?(event)
-    if last_read_at.present?
-      self.last_read_at >= event.created_at
-    else
-      false
-    end
+  def viewed!(read_at = discussion.last_activity_at)
+    return unless user
+
+    reset_counts! read_at
+    EventBus.broadcast('discussion_reader_viewed!', discussion, user)
   end
 
-  def unread_activity?
-    last_read_at.nil? || (discussion.last_activity_at > last_read_at)
-  end
+  def reset_counts!(read_at = self.last_read_at)
+    return if (!read_at && !self.last_read_at) ||                           # no read_at given and no last_read_at is set
+              (read_at && self.last_read_at && read_at < self.last_read_at) # last_read_at exists, but is before the given read_at
 
-  def viewed!(age_of_last_read_item = nil)
-    return if user.nil?
-    read_at = age_of_last_read_item || discussion.last_activity_at
-
-    if self.last_read_at.nil? or (read_at > self.last_read_at)
-      self.last_read_at = read_at
-      reset_counts!
-    end
-  end
-
-  def reset_comment_counts
-    self.read_comments_count = read_comments.count
-  end
-
-  def reset_comment_counts!
-    reset_comment_counts
+    assign_attributes(
+      last_read_at:             read_at,
+      last_read_sequence_id:    self.read_items(read_at).maximum(:sequence_id).to_i,
+      read_items_count:         self.read_items(read_at).count,
+      read_salient_items_count: self.read_salient_items(read_at).count
+    )
     save!(validate: false)
-  end
-
-  def reset_non_comment_counts
-    self.read_items_count = read_items.count
-    self.read_salient_items_count = read_salient_items.count
-    self.last_read_sequence_id = if read_items_count == 0
-                                   0
-                                 else
-                                   read_items.last.sequence_id
-                                 end
-  end
-
-  def reset_non_comment_counts!
-    reset_non_comment_counts
-    save!(validate: false)
-  end
-
-  def reset_counts!
-    reset_comment_counts
-    reset_non_comment_counts
-    save!(validate: false)
-  end
-
-
-  def first_unread_page
-    per_page = Discussion::PER_PAGE
-    remainder = read_items_count % per_page
-
-    if read_items_count == 0
-      1
-    elsif remainder == 0 && discussion.items_count > read_items_count
-      (read_items_count.to_f / per_page).ceil + 1
-    else
-      (read_items_count.to_f / per_page).ceil
-    end
-  end
-
-  def read_comments(time = nil)
-    discussion.comments.where('comments.created_at <= ?', time || last_read_at).chronologically
   end
 
   def read_items(time = nil)
@@ -143,8 +89,7 @@ class DiscussionReader < ActiveRecord::Base
     discussion.salient_items.where('events.created_at <= ?', time || last_read_at).chronologically
   end
 
-  private
   def membership
-    discussion.group.membership_for(user)
+    @membership ||= discussion.group.membership_for(user)
   end
 end

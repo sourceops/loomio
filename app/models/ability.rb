@@ -21,7 +21,7 @@ class Ability
     cannot :sign_up, User
 
     can [:approve, :decline], NetworkMembershipRequest do |request|
-      request.pending? and request.network.coordinators.include? user
+      !request.approved? and request.network.coordinators.include? user
     end
 
     can :create, NetworkMembershipRequest do |request|
@@ -35,7 +35,7 @@ class Ability
     end
 
     can :show, Group do |group|
-      if group.is_archived?
+      if group.archived_at
         false
       else
         group.is_visible_to_public? or
@@ -44,8 +44,8 @@ class Ability
       end
     end
 
-    can :see_private_content, Group do |group|
-      if group.is_archived?
+    can [:see_private_content, :subscribe_to], Group do |group|
+      if group.archived_at
         false
       else
         user_is_member_of?(group.id) or
@@ -53,15 +53,15 @@ class Ability
       end
     end
 
-    can [:view_payment_details,
-         :choose_subscription_plan], Group do |group|
-      group.is_parent? and user_is_admin_of?(group.id) and (!group.has_manual_subscription?)
+    can [:choose_subscription_plan], Group do |group|
+      group.is_parent? and user_is_admin_of?(group.id)
     end
 
     can [:update,
          :email_members,
          :hide_next_steps,
-         :archive], Group do |group|
+         :archive,
+         :view_pending_invitations], Group do |group|
       user_is_admin_of?(group.id)
     end
 
@@ -70,14 +70,21 @@ class Ability
       (user_is_admin_of?(group.id) && group.enabled_beta_features.include?('export'))
     end
 
-    can [:members_autocomplete, :set_volume, :see_members], Group do |group|
+    can [:members_autocomplete,
+         :set_volume,
+         :see_members,
+         :make_draft,
+         :move_discussions_to,
+         :view_previous_proposals], Group do |group|
       user_is_member_of?(group.id)
     end
 
     can [:add_members,
          :invite_people,
-         :manage_membership_requests], Group do |group|
-      (group.members_can_add_members? && user_is_member_of?(group.id)) || user_is_admin_of?(group.id)
+         :manage_membership_requests,
+         :view_shareable_invitation], Group do |group|
+      (group.members_can_add_members? && user_is_member_of?(group.id)) ||
+      user_is_admin_of?(group.id)
     end
 
     # please note that I don't like this duplication either.
@@ -94,13 +101,18 @@ class Ability
       # otherwise, the group must be a subgroup
       # inwhich case we need to confirm membership and permission
 
-      group.is_parent? ||
-       ((user_is_member_of?(group.parent.id) && group.parent.members_can_create_subgroups?)) ||
-       user_is_admin_of?(group.parent.id)
+      user.is_logged_in? &&
+      (
+        group.is_parent? ||
+        user_is_admin_of?(group.parent_id) ||
+        (user_is_member_of?(group.parent_id) && group.parent.members_can_create_subgroups?)
+      )
     end
 
     can :join, Group do |group|
-      can?(:show, group) and group.membership_granted_upon_request?
+      can?(:show, group) &&
+      (group.membership_granted_upon_request? ||
+       group.invitations.find_by(recipient_email: @user.email))
     end
 
     can [:make_admin], Membership do |membership|
@@ -126,12 +138,20 @@ class Ability
       end
     end
 
+    can :show, User do |user|
+      user.deactivated_at.nil?
+    end
+
     can :deactivate, User do |user_to_deactivate|
       not user_to_deactivate.adminable_groups.published.any? { |g| g.admins.count == 1 }
     end
 
-    can :update, User do |user|
+    can [:update, :see_notifications_for, :make_draft, :subscribe_to], User do |user|
       @user == user
+    end
+
+    can [:subscribe_to], GlobalMessageChannel do |channel|
+      true
     end
 
     can :create, MembershipRequest do |request|
@@ -155,10 +175,11 @@ class Ability
 
     can [:show,
          :print,
-         :mark_as_read], Discussion do |discussion|
-      if discussion.is_archived?
+         :mark_as_read,
+         :subscribe_to], Discussion do |discussion|
+      if discussion.archived_at.present?
         false
-      elsif discussion.group.is_archived?
+      elsif discussion.group.archived_at.present?
         false
       else
         discussion.public? or
@@ -184,7 +205,8 @@ class Ability
     end
 
     can :create, Discussion do |discussion|
-      (discussion.group.members_can_start_discussions? &&
+      (discussion.group.present? &&
+       discussion.group.members_can_start_discussions? &&
        user_is_member_of?(discussion.group_id)) ||
       user_is_admin_of?(discussion.group_id)
     end
@@ -197,7 +219,7 @@ class Ability
     end
 
     can [:create], Comment do |comment|
-      user_is_member_of?(comment.group.id) && user_is_author_of?(comment)
+      comment.discussion && user_is_member_of?(comment.group.id)
     end
 
     can [:update], Comment do |comment|
@@ -208,12 +230,16 @@ class Ability
       user_is_member_of?(comment.group.id)
     end
 
-    can :add_comment, Discussion do |discussion|
+    can [:add_comment, :make_draft], Discussion do |discussion|
       user_is_member_of?(discussion.group_id)
     end
 
     can [:destroy], Comment do |comment|
       user_is_author_of?(comment) or user_is_admin_of?(comment.discussion.group_id)
+    end
+
+    can [:create], Attachment do
+      user.is_logged_in?
     end
 
     can [:destroy], Attachment do |attachment|
@@ -222,13 +248,13 @@ class Ability
 
     can [:create], Motion do |motion|
       discussion = motion.discussion
-      discussion.motion_can_be_raised? &&
+      discussion.current_motion.blank? &&
       ((discussion.group.members_can_raise_motions? &&
         user_is_member_of?(discussion.group_id)) ||
         user_is_admin_of?(discussion.group_id) )
     end
 
-    can [:vote], Motion do |motion|
+    can [:vote, :make_draft], Motion do |motion|
       discussion = motion.discussion
       motion.voting? &&
       ((discussion.group.members_can_vote? && user_is_member_of?(discussion.group_id)) ||
@@ -273,6 +299,27 @@ class Ability
       can?(:show, vote.motion)
     end
 
+    can :update, Draft do |draft|
+      draft.user_id == @user.id &&
+      can?(:make_draft, draft.draftable)
+    end
+
+    can [:show, :update, :destroy], OauthApplication do |application|
+      application.owner_id == @user.id
+    end
+
+    can :revoke_access, OauthApplication do |application|
+      OauthApplication.authorized_for(user).include? application
+    end
+
+    can :create, OauthApplication do |application|
+      @user.is_logged_in?
+    end
+
+    add_additional_abilities
+  end
+
+  def add_additional_abilities
+    # For plugins to add their own abilities
   end
 end
-

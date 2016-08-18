@@ -7,8 +7,8 @@ class API::NotificationsController < API::RestfulController
 
   private
 
-  def visible_records
-    Notification.where(user_id: current_user.id).order(created_at: :desc)
+  def accessible_records
+    Notification.includes(event: [:eventable, :user]).where(user_id: current_user.id).order(created_at: :desc)
   end
 
 end

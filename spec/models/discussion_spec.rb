@@ -1,47 +1,10 @@
 require 'rails_helper'
 
 describe Discussion do
-  let(:discussion) { create :discussion }
-
-  describe "archive!" do
-    let(:discussion) { create :discussion }
-
-    before do
-      discussion.archive!
-    end
-
-    it "sets archived_at on the discussion" do
-      discussion.archived_at.should be_present
-    end
-  end
-
-  describe "#search(query)" do
-    before { @user = create(:user) }
-    it "returns user's discussions that match the query string" do
-      discussion = create :discussion, title: "jam toast", author: @user
-      expect(@user.discussions.search("jam")).to eq [discussion]
-    end
-    it "does not return discussions that don't belong to the user" do
-      discussion = create :discussion, title: "sandwich crumbs"
-      @user.discussions.search("sandwich").should_not == [discussion]
-    end
-  end
-
-  describe "#last_versioned_at" do
-    it "returns the time the discussion was created at if no previous version exists" do
-      Timecop.freeze do
-        discussion = create :discussion
-        expect(discussion.last_versioned_at.iso8601).to eq discussion.created_at.iso8601
-      end
-    end
-    it "returns the time the previous version was created at" do
-      discussion = create :discussion
-      discussion.stub :has_previous_versions? => true
-      discussion.stub_chain(:previous_version, :version, :created_at)
-                .and_return 12345
-      expect(discussion.last_versioned_at).to eq 12345
-    end
-  end
+  let(:user)       { create :user }
+  let(:group)      { create :group }
+  let(:discussion) { create :discussion, group: group }
+  let(:motion)     { create :motion, discussion: discussion }
 
   context "versioning" do
     before do
@@ -87,6 +50,27 @@ describe Discussion do
 
   end
 
+  describe "#closed_motions_count" do
+    before do
+      motion.close!
+    end
+
+    it "returns a count of closed motions" do
+      expect(discussion.reload.closed_motions_count).to eq 1
+    end
+
+    it "updates correctly after motion is closed" do
+      expect {
+        discussion.motions.create(attributes_for(:motion).merge({ author: user })).close!
+      }.to change { discussion.reload.closed_motions_count }.by(1)
+    end
+
+    it "updates correctly after deleting a motion" do
+      expect { motion.destroy }.to change { discussion.reload.closed_motions_count }.by(-1)
+    end
+
+  end
+
   describe "#current_motion" do
     before do
       @discussion = create :discussion
@@ -107,66 +91,6 @@ describe Discussion do
       it "does not return motion" do
         @discussion.current_motion.should be_nil
       end
-    end
-  end
-
-  describe "#participants" do
-    before do
-      @user1, @user2, @user3, @user4, @user_left_group =
-        create(:user), create(:user), create(:user), create(:user), create(:user)
-      @discussion = create :discussion, author: @user1
-      @group = @discussion.group
-      @group.add_member! @user2
-      @group.add_member! @user3
-      @group.add_member! @user4
-      CommentService.create(comment: Comment.new(discussion: @discussion, body: 'hi'), actor: @user2)
-      CommentService.create(comment: Comment.new(discussion: @discussion, body: 'hi'), actor: @user3)
-
-      @group.add_member! @user_left_group
-      CommentService.create(comment: Comment.new(discussion: @discussion, body: 'hi'), actor: @user_left_group)
-      @group.membership_for(@user_left_group).destroy
-    end
-
-    it "should include users who have commented on discussion" do
-      @discussion.participants.should include(@user2)
-      @discussion.participants.should include(@user3)
-    end
-
-    it "should include the author of the discussion" do
-      @discussion.participants.should include(@user1)
-    end
-
-    it "should include discussion motion authors (if any)" do
-      previous_motion_author = create(:user)
-      current_motion_author = create(:user)
-      @group.add_member! previous_motion_author
-      @group.add_member! current_motion_author
-      previous_motion = create(:motion, discussion: @discussion, author: previous_motion_author)
-      MotionService.close(previous_motion)
-      current_motion = create(:motion, discussion: @discussion, author: current_motion_author)
-
-      @discussion.participants.should include(previous_motion_author)
-      @discussion.participants.should include(current_motion_author)
-    end
-
-    it "should not include users who have not commented on discussion" do
-      @discussion.participants.should_not include(@user4)
-    end
-
-    it "should not include users who have since left the group" do
-      @discussion.participants.should_not include(@user_left_group)
-    end
-  end
-
-  describe "#delayed_destroy" do
-    it 'sets deleted_at before calling destroy and then destroys everything' do
-      @motion = create(:motion, discussion: discussion)
-      @vote = create(:vote, motion: @motion)
-      discussion.should_receive(:is_deleted=).with(true)
-      discussion.delayed_destroy
-      Discussion.find_by_id(discussion.id).should be_nil
-      Motion.find_by_id(@motion.id).should be_nil
-      Vote.find_by_id(@vote.id).should be_nil
     end
   end
 
@@ -238,10 +162,7 @@ describe Discussion do
     describe "new discussion" do
       it "has the right values to begin with" do
         expect(discussion.items_count).to be 0
-        expect(discussion.comments_count).to be 0
         expect(discussion.salient_items_count).to be 0
-        expect(discussion.last_item_at).to be nil
-        expect(discussion.last_comment_at).to be nil
         expect(discussion.last_activity_at).to eq discussion.created_at
         expect(discussion.first_sequence_id).to be 0
         expect(discussion.last_sequence_id).to be 0
@@ -262,10 +183,7 @@ describe Discussion do
 
       it "increments corrently" do
         expect(discussion.items_count).to be 1
-        expect(discussion.comments_count).to be 1
         expect(discussion.salient_items_count).to be 1
-        expect(discussion.last_item_at).to eq @comment.created_at
-        expect(discussion.last_comment_at).to eq @comment.created_at
         expect(discussion.last_activity_at).to eq @comment.created_at
         expect(discussion.first_sequence_id).to be @event.sequence_id
         expect(discussion.last_sequence_id).to be @event.sequence_id
@@ -283,12 +201,9 @@ describe Discussion do
         discussion.reload
       end
 
-      it "decrements correctly", focus: true do
+      it "decrements correctly" do
         expect(discussion.items_count).to be 0
-        expect(discussion.comments_count).to be 0
         expect(discussion.salient_items_count).to be 0
-        expect(discussion.last_item_at).to eq nil
-        expect(discussion.last_comment_at).to eq nil
         expect(discussion.last_activity_at).to eq discussion.created_at
         expect(discussion.last_sequence_id).to be 0
         expect(discussion.first_sequence_id).to be 0
@@ -316,10 +231,7 @@ describe Discussion do
 
       it "decrements correctly" do
         expect(discussion.items_count).to be 1
-        expect(discussion.comments_count).to be 1
         expect(discussion.salient_items_count).to be 1
-        expect(discussion.last_item_at).to eq @comment2.created_at
-        expect(discussion.last_comment_at).to eq @comment2.created_at
         expect(discussion.last_activity_at).to eq @comment2.created_at
         expect(discussion.first_sequence_id).to be @event2.sequence_id
         expect(discussion.last_sequence_id).to be @event2.sequence_id
@@ -351,13 +263,60 @@ describe Discussion do
 
       it "decrements correctly" do
         expect(discussion.items_count).to be 1
-        expect(discussion.comments_count).to be 1
         expect(discussion.salient_items_count).to be 1
-        expect(discussion.last_item_at).to eq @comment1.created_at
-        expect(discussion.last_comment_at).to eq @comment1.created_at
         expect(discussion.last_activity_at).to eq @comment1.created_at
         expect(discussion.first_sequence_id).to be @event1.sequence_id
         expect(discussion.last_sequence_id).to be @event1.sequence_id
+      end
+    end
+
+    it "does not increment when creating a non thread-kind item" do
+      stub_const("Discussion::THREAD_ITEM_KINDS", ['new_motion', 'new_discussion']) # not new_comment
+      old_items_count = discussion.items_count
+      CommentService.create(comment: build(:comment, discussion: discussion), actor: discussion.author)
+      expect(discussion.reload.items_count).to eq old_items_count
+    end
+  end
+
+  describe 'mentioning' do
+    let(:discussion) { build(:discussion, description: "Hello @#{user.username}!") }
+    let(:another_user) { create(:user) }
+
+    describe '#mentionable_text' do
+      it 'stores the description as mentionable text' do
+        expect(discussion.send(:mentionable_text)).to eq discussion.description
+      end
+    end
+
+    describe 'mentionable_usernames' do
+      it 'can extract usernames' do
+        expect(discussion.mentioned_usernames).to include user.username
+      end
+
+      it 'does not duplicate usernames' do
+        discussion.description += " Goodbye @#{user.username}!"
+        expect(discussion.mentioned_usernames).to eq [user.username]
+      end
+
+      it 'does not extract the authors username' do
+        discussion.description = "Hello @#{discussion.author.username}!"
+        expect(discussion.mentioned_usernames).to_not include discussion.author.username
+      end
+    end
+
+    describe 'mentioned_group_members' do
+      it 'includes members in the current group' do
+        discussion.group.add_member! user
+        expect(discussion.mentioned_group_members).to include user
+      end
+
+      it 'does not include members not in the group' do
+        expect(discussion.mentioned_group_members).to_not include user
+      end
+
+      it 'does not include the discussion author' do
+        discussion.description = "Hello @#{discussion.author.username}!"
+        expect(discussion.mentioned_group_members).to_not include discussion.author
       end
     end
   end

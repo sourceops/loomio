@@ -4,6 +4,19 @@ require 'rails/all'
 
 Bundler.require(*Rails.groups)
 
+require_relative '../lib/version'
+
+def lmo_asset_host
+  parts = []
+  parts << (ENV['FORCE_SSL'] ? 'https://' : 'http://')
+  parts << ENV['CANONICAL_HOST']
+  if ENV['CANONICAL_PORT']
+    parts << ':'
+    parts << ENV['CANONICAL_PORT']
+  end
+  parts.join('')
+end
+
 module Loomio
   class Application < Rails::Application
     config.active_job.queue_adapter = :delayed_job
@@ -18,8 +31,8 @@ module Loomio
     # -- all .rb files in that directory are automatically loaded.
 
     # Custom directories with classes and modules you want to be autoloadable.
-    config.paths.add "extras", eager_load: true
-    #config.autoload_paths += Dir["#{config.root}/app/forms/**/"]
+    # config.paths.add "extras", eager_load: true
+    # config.autoload_paths += Dir["#{config.root}/app/forms/**/"]
 
     config.middleware.use Rack::Attack
     # Only load the plugins named here, in the order given (default is alphabetical).
@@ -53,31 +66,58 @@ module Loomio
     # Version of your assets, change this if you want to expire all your assets
     config.assets.version = '1.4'
 
-    config.action_mailer.default_url_options = {
-      host:     ENV['CANONICAL_HOST'],
-      protocol: ENV['FORCE_SSL'] ? 'https' : 'http'
-    }
-
-    config.roadie.url_options = nil
-
     # required for heroku
     config.assets.initialize_on_precompile = false
 
     config.quiet_assets = true
     config.action_mailer.preview_path = "#{Rails.root}/spec/mailers/previews"
 
-    # Store avatars on Amazon S3
-    config.paperclip_defaults = {
-      :storage => :fog,
-      :fog_credentials => {
-        :provider => 'AWS',
-        :aws_access_key_id => Rails.application.secrets.aws_access_key_id,
-        :aws_secret_access_key => Rails.application.secrets.aws_secret_access_key
-      },
-      :fog_directory => Rails.application.secrets.aws_bucket,
-      :fog_public => true
-    }
-
     config.active_record.raise_in_transactional_callbacks = true
+
+    if ENV['FOG_PROVIDER']
+      def self.fog_credentials
+        env = Rails.application.secrets
+        case env.fog_provider
+        when 'AWS'   then { aws_access_key_id: env.aws_access_key_id, aws_secret_access_key: env.aws_secret_access_key }
+        when 'Local' then { local_root: [Rails.root, 'public'].join('/'), endpoint: env.canonical_host }
+        end.merge(provider: env.fog_provider)
+      end
+
+      # Store avatars on Amazon S3
+      config.paperclip_defaults = {
+        storage: :fog,
+        fog_credentials: fog_credentials,
+        fog_directory: Rails.application.secrets.fog_uploads_directory,
+        fog_public: true
+      }
+    end
+
+    config.force_ssl = ENV.has_key?('FORCE_SSL')
+    config.action_mailer.raise_delivery_errors = true
+    config.action_mailer.perform_deliveries = true
+
+    if ENV['SMTP_SERVER']
+      config.action_mailer.delivery_method = :smtp
+      config.action_mailer.smtp_settings = {
+        address: ENV['SMTP_SERVER'],
+        port: ENV['SMTP_PORT'],
+        authentication: ENV['SMTP_AUTH'],
+        user_name: ENV['SMTP_USERNAME'],
+        password: ENV['SMTP_PASSWORD'],
+        domain: ENV['SMTP_DOMAIN'],
+        openssl_verify_mode: 'none'
+      }.compact
+    else
+      config.action_mailer.delivery_method = :test
+    end
+
+    config.action_mailer.default_url_options = config.action_controller.default_url_options = {
+      host:     ENV['CANONICAL_HOST'],
+      port:     ENV['CANONICAL_PORT'],
+      protocol: ENV['FORCE_SSL'] ? 'https' : 'http'
+    }.compact
+
+    config.action_mailer.asset_host = lmo_asset_host
+
   end
 end

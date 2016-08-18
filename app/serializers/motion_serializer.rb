@@ -2,23 +2,28 @@ class MotionSerializer < ActiveModel::Serializer
   embed :ids, include: true
   attributes :id,
              :key,
-             :discussion_id,
              :name,
              :description,
              :outcome,
              :activity_count,
-             :did_not_votes_count,
+             :voters_count,
+             :members_count,
+             :non_voters_count,
              :created_at,
              :updated_at,
              :closing_at,
              :closed_at,
+             :closed_or_closing_at,
              :last_vote_at,
              :vote_counts,
-             :activity_count
+             :activity_count,
+             :group_id,
+             :discussion_id,
+             :mentioned_usernames
 
-  has_one :author, serializer: UserSerializer, root: 'users'
-  has_one :outcome_author, serializer: UserSerializer, root: 'users'
-
+  has_one :author, serializer: UserSerializer, root: :users
+  has_one :outcome_author, serializer: UserSerializer, root: :users
+  has_many :attachments, serializer: AttachmentSerializer, root: :attachments
 
   def filter(keys)
     keys.delete(:outcome_author) unless object.outcome_author.present?

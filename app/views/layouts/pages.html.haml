@@ -1,38 +1,45 @@
-!!!
-%html{locale: current_locale}
-  %head
-    - title = @title ? @title : "Loomio | Collaborative Decision-Making"
-    %meta{content: "width=device-width, initial-scale=1", name: "viewport"}/
-    %meta{content: "IE=Edge", "http-equiv" => "X-UA-Compatible"}/
-    %title= title
-    <link href='//fonts.googleapis.com/css?family=Open+Sans:400,300,700,600' rel='stylesheet' type='text/css'>
-    = stylesheet_link_tag "application"
-    = theme_stylesheet_link_tag
-    = csrf_meta_tags
-    = render 'social_metadata', description: @meta_description, title: @meta_title
+%head
+  %title= t(:'meta_tags.default_title')
+  %meta{ name: 'description', content: t(:'meta_tags.default_description') }
 
-  %body{class: "pages #{controller_name} #{action_name}"}
-    - analytics_scope do
-      = render 'google_tag_manager'
+  %meta{ name: 'twitter:card', content: 'summary'}
+  %meta{ name: 'twitter:creator', content: "@Loomio" }
+  %meta{ name: 'twitter:title', content: t(:'meta_tags.default_title') }
+  %meta{ name: 'twitter:description', content: t(:'meta_tags.default_description') }
 
-    .navbar.navbar-top{role: 'navigation'}
-      .navbar-inner
-        .navbar-container
-          = link_to " ", root_path, class: 'pages-nav-logo', title: 'Go to Loomio home page'
+  %meta{ property: 'og:title', content: t(:'meta_tags.default_title') }
+  %meta{ property: 'og:description', content: t(:'meta_tags.default_description') }
+  %meta{ property: 'og:type', content: 'website' }
+  %meta{ property: 'og:site_name', content: 'Loomio'}
+  %meta{ property: 'og:image:type', content: 'image/png' }
+  %meta{ property: 'og:image:width', content: '1200' }
+  %meta{ property: 'og:image:height', content: '1200' }
+  %meta{ property: 'og:url', content: request.original_url }
+  %meta{ property: 'fb:app_id', content:ENV['FB_APP_ID_META']}
 
-    .container.home-flash
-      = render 'flash_messages', :flash => flash
+  %meta{property:'og:locale', content: current_locale}
+  - detectable_locales.each do |locale|
+    %meta{property:'og:locale:alternate', content: locale}
 
-    .row.hero
-      %main.content-container
-        .content
-          = yield
+  %link{href: '//plus.google.com/116342080294548871960/', rel: 'publisher'}
 
-    .row
-      .container{role: 'contentinfo'}
-        .col-xs-12
-          = render 'footer'
+  = stylesheet_link_tag "marketing/index"
 
-  = javascript_include_tag "application"
-  = theme_javascript_include_tag
-  = render 'heap_analytics'
+  %link{href: "//cdnjs.cloudflare.com/ajax/libs/font-awesome/4.4.0/css/font-awesome.min.css", rel: "stylesheet"}
+
+  = javascript_include_tag "//cdnjs.cloudflare.com/ajax/libs/jquery/3.0.0/jquery.min.js"
+
+  = render 'application/google_analytics'
+
+  %meta{'name' => 'viewport', 'content' => 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0'}
+
+%body
+  - unless flash.empty?
+    .lmo-flash-container
+      = render 'application/flash_messages', :flash => flash
+  = render 'header'
+  .lmo-wrap__body
+    = yield
+    = render 'footer'
+
+= javascript_include_tag "marketing/marketing"

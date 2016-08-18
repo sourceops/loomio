@@ -1,13 +1,20 @@
 class MembershipService
 
-  def self.update(membership:, params:, actor:)
+  def self.set_volume(membership:, params:, actor:)
     actor.ability.authorize! :update, membership
-    membership.set_volume! params[:volume]
+    if params[:apply_to_all]
+      actor.memberships.update_all(volume: Membership.volumes[params[:volume]])
+      actor.discussion_readers.update_all(volume: nil)
+    else
+      membership.set_volume! params[:volume]
+      membership.discussion_readers.update_all(volume: nil)
+    end
   end
 
   def self.make_admin(membership:, actor:)
     actor.ability.authorize! :make_admin, membership
     membership.update admin: true
+    Events::NewCoordinator.publish!(membership, actor)
   end
 
   def self.remove_admin(membership:, actor:)
@@ -21,11 +28,12 @@ class MembershipService
      Events::UserJoinedGroup.publish!(membership)
    end
 
-  def self.add_users_to_group(users: nil, group: nil, inviter: nil, message: nil)
+  def self.add_users_to_group(users: , group: , inviter: , message: nil)
+    inviter.ability.authorize!(:add_members, group)
     memberships = group.add_members!(users, inviter)
     memberships.each do |m|
       Events::UserAddedToGroup.publish!(m, inviter)
-      UserMailer.delay.added_to_group(user: m.user, inviter: inviter,
+      UserMailer.delay(priority: 1).added_to_group(user: m.user, inviter: inviter,
                                       group: m.group, message: message)
     end
   end
@@ -37,5 +45,11 @@ class MembershipService
 
   def self.suspend_membership!(membership:)
     membership.suspend!
+  end
+
+  def self.save_experience(membership:, actor:, params:)
+    actor.ability.authorize! :update, membership
+    membership.experienced!(params[:experience])
+    EventBus.broadcast('membership_save_experience', membership, actor, params)
   end
 end

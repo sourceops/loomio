@@ -1,11 +1,13 @@
 Feature: Volume
 
 Background:
-  Given I am the logged in admin of a group
+  Given I am logged in
+  And I am an admin of a group
   And Loud Larry is following everything in the group by email
   And Normal Norman gets important events emailed as they happen
   And Quiet Quincey want to catch up by digest email
   And Mute megan mutes everything.
+  And Hermit Harry turns off all emails.
   And Closing Soonsan mutes everything but wants to hear when proposals are closing and when mentioned.
 
 Scenario: New discussion
@@ -47,7 +49,7 @@ Scenario: Proposal closing soon
 Scenario: Proposal closed
   When my proposal closes
   Then "Loud Larry"      should be emailed
-  And  "Normal Norman"   should not be emailed
+  And  "Normal Norman"   should be emailed
   And  "Quiet Quincey"   should not be emailed
   And  "Mute Megan"      should not be emailed
 
@@ -64,3 +66,7 @@ Scenario: New mention
   And  "Normal Norman"   should not be emailed
   And  "Quiet Quincey"   should not be emailed
   And  "Mute Megan"      should be emailed
+
+Scenario: New mention for Hermit Harry
+  When I mention Hermit Harry
+  Then "Hermit Harry" should not be emailed

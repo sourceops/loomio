@@ -12,31 +12,6 @@ describe API::CommentsController do
     group.members << user
   end
 
-  describe "auth by write only api key" do
-    describe 'create' do
-      let(:comment_params) { {discussion_id: discussion.id, body: 'content'} }
-
-      context 'success', focus: true do
-        it "creates a comment" do
-          request.headers['Loomio-User-Id'] = user.id
-          request.headers['Loomio-Email-API-Key'] = user.email_api_key
-          post :create, comment: comment_params
-          expect(response).to be_success
-          expect(Comment.where(body: comment_params[:body],
-                               user_id: user.id)).to exist
-        end
-      end
-
-      context 'failures' do
-        it "responds with an error when the user is unauthorized" do
-          sign_in another_user
-          post :create, comment: comment_params
-          expect(JSON.parse(response.body)['exception']).to eq 'CanCan::AccessDenied'
-        end
-      end
-    end
-  end
-
   describe "signed in" do
     before do
       sign_in user
@@ -117,10 +92,29 @@ describe API::CommentsController do
                                user_id: user.id)).to exist
         end
 
+        it 'responds with a discussion with a reader' do
+          post :create, comment: comment_params
+          json = JSON.parse(response.body)
+          expect(json['discussions'][0]['discussion_reader_id']).to be_present
+        end
+
         it 'responds with json' do
           post :create, comment: comment_params
           json = JSON.parse(response.body)
           expect(json.keys).to include *(%w[users attachments comments])
+        end
+
+        describe 'mentioning' do
+          it 'mentions appropriate users' do
+            group.add_member! another_user
+            comment_params[:body] = "Hello, @#{another_user.username}!"
+            expect { post :create, comment: comment_params, format: :json }.to change { Event.where(kind: :user_mentioned).count }.by(1)
+          end
+
+          it 'does not mention users not in the group' do
+            comment_params[:body] = "Hello, @#{another_user.username}!"
+            expect { post :create, comment: comment_params, format: :json }.to_not change { Event.where(kind: :user_mentioned).count }
+          end
         end
       end
 

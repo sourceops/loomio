@@ -10,8 +10,6 @@ tmp/
 *.tmproj
 *.DS_Store
 coverage
-public/assets
-public/system
 .project
 Session.vim
 *.sql
@@ -21,10 +19,18 @@ screenshots/
 .idea
 .env
 bin/
-/lineman/node_modules
-/lineman/dist
-/lineman/generated
-/lineman/vendor/bower_components
-/lineman/app/css/modules.scss
 .powenv
-/lineman/app/css/modules.scss
+.byebug_history
+
+public/client
+public/system
+public/uploads
+
+disabled_plugins/
+/plugins/
+
+# NB: To reveal a plugin to hack on it locally, add a line here telling .gitignore to reveal it:
+# !plugins/my_awesome_plugin
+
+angular/node_modules
+angular/tasks/config/plugins.yml

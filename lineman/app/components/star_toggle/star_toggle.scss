@@ -1,7 +1,0 @@
-.star-toggle{
-  @include fontLarge;
-  cursor: pointer;
-  .fa-star { color: $loomio-orange; }
-}
-.thread-actions .star-toggle{line-height: 30px;}
-.thread-preview__star .star-toggle{line-height: 1px;}

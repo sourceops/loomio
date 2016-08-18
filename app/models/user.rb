@@ -1,18 +1,17 @@
 class User < ActiveRecord::Base
   include AvatarInitials
   include ReadableUnguessableUrls
-
-  require 'net/http'
-  require 'digest/md5'
+  include MessageChannel
+  include HasExperiences
 
   AVATAR_KINDS = %w[initials uploaded gravatar]
   LARGE_IMAGE = 170
   MED_LARGE_IMAGE = 70
-  MEDIUM_IMAGE = 35
-  SMALL_IMAGE = 25
-  MAX_AVATAR_IMAGE_SIZE_CONST = 10.megabytes
+  MEDIUM_IMAGE = 50
+  SMALL_IMAGE = 30
+  MAX_AVATAR_IMAGE_SIZE_CONST = 100.megabytes
 
-  devise :database_authenticatable, :recoverable, :registerable, :rememberable, :trackable, :omniauthable
+  devise :database_authenticatable, :recoverable, :registerable, :rememberable, :trackable, :omniauthable, :validatable
   attr_accessor :honeypot
 
   validates :email, presence: true, uniqueness: true, email: true
@@ -33,8 +32,8 @@ class User < ActiveRecord::Base
 
   validates_inclusion_of :avatar_kind, in: AVATAR_KINDS
 
-  validates_uniqueness_of :username, allow_blank: true
-  validates_length_of :username, maximum: 30, allow_blank: true
+  validates_uniqueness_of :username
+  validates_length_of :username, maximum: 30
   validates_format_of :username, with: /\A[a-z0-9]*\z/, message: I18n.t(:'error.username_must_be_alphanumeric')
 
   validates_length_of :password, minimum: 8, allow_nil: true
@@ -42,7 +41,6 @@ class User < ActiveRecord::Base
 
   include Gravtastic
   gravtastic rating: :pg, default: :none
-
 
   has_many :contacts, dependent: :destroy
   has_many :admin_memberships,
@@ -92,13 +90,13 @@ class User < ActiveRecord::Base
   has_many :comment_votes, dependent: :destroy
 
   has_many :discussion_readers, dependent: :destroy
-  has_many :motion_readers, dependent: :destroy
   has_many :omniauth_identities, dependent: :destroy
 
 
   has_many :notifications, dependent: :destroy
   has_many :comments, dependent: :destroy
   has_many :attachments, dependent: :destroy
+  has_many :drafts, dependent: :destroy
 
   has_one :deactivation_response,
           class_name: 'UserDeactivationResponse',
@@ -111,12 +109,15 @@ class User < ActiveRecord::Base
 
   before_create :set_default_avatar_kind
 
+  enum default_membership_volume: [:mute, :quiet, :normal, :loud]
+
   scope :active, -> { where(deactivated_at: nil) }
   scope :inactive, -> { where("deactivated_at IS NOT NULL") }
   scope :email_missed_yesterday, -> { active.where(email_missed_yesterday: true) }
   scope :sorted_by_name, -> { order("lower(name)") }
   scope :admins, -> { where(is_admin: true) }
   scope :coordinators, -> { joins(:memberships).where('memberships.admin = ?', true).group('users.id') }
+  scope :mentioned_in, ->(model) { where(id: model.notifications.user_mentions.pluck(:user_id)) }
 
   # move to ThreadMailerQuery
   scope :email_when_proposal_closing_soon, -> { active.where(email_when_proposal_closing_soon: true) }
@@ -138,39 +139,12 @@ class User < ActiveRecord::Base
     end
   }
 
-  def self.email_taken?(email)
-    User.find_by_email(email).present?
-  end
-
   def user_id
     id
   end
 
   def is_logged_in?
     true
-  end
-
-  def is_logged_out?
-    !is_logged_in?
-  end
-
-  def cached_group_ids
-    @cached_group_ids ||= group_ids
-  end
-
-  def top_level_groups
-    parents = groups.parents_only.order(:name).includes(:children)
-    orphans = groups.where('parent_id not in (?)', parents.map(&:id))
-    (parents.to_a + orphans.to_a).sort{|a, b| a.full_name <=> b.full_name }
-  end
-
-  def inbox_groups
-    groups.where('memberships.inbox_position is not null').order('memberships.inbox_position')
-  end
-
-  def groups_discussions_can_be_started_in
-    (groups.where(members_can_start_discussions: true) | adminable_groups).
-     sort{|a,b| a.full_name <=> b.full_name}
   end
 
   def first_name
@@ -187,14 +161,6 @@ class User < ActiveRecord::Base
   end
 
   delegate :can?, :cannot?, :to => :ability
-
-  def voting_motions
-    motions.voting
-  end
-
-  def closed_motions
-    motions.closed
-  end
 
   def is_group_admin?(group=nil)
     if group.present?
@@ -216,25 +182,25 @@ class User < ActiveRecord::Base
     self[:time_zone] || 'UTC'
   end
 
-  def is_parent_group_member?(group)
-    memberships.for_group(group.parent).exists? if group.parent
-  end
-
   def group_membership(group)
     memberships.for_group(group).first
   end
 
-  def self.loomio_helper_bot(password: nil)
-    where(email: 'contact@loom.io').first ||
-    create!(email: 'contact@loom.io', name: 'Loomio Helper Bot', password: password || SecureRandom.hex)
-  end
-
-  def self.helper_bots
-    where(email: ['contact@loomio.org', 'contact@loom.io'])
-  end
-
   def self.find_by_email(email)
     User.where('lower(email) = ?', email.downcase).first
+  end
+
+  def self.helper_bot
+    find_by(email: helper_bot_email) ||
+    create!(email: helper_bot_email,
+            name: 'Loomio Helper Bot',
+            password: SecureRandom.hex(20),
+            uses_markdown: true,
+            avatar_kind: :gravatar)
+  end
+
+  def self.helper_bot_email
+    ENV['HELPER_BOT_EMAIL'] || 'contact@loomio.org'
   end
 
   def subgroups
@@ -254,17 +220,11 @@ class User < ActiveRecord::Base
   end
 
   def deactivate!
+    former_group_ids = group_ids
     update_attributes(deactivated_at: Time.now, avatar_kind: "initials")
     memberships.update_all(archived_at: Time.now)
+    Group.where(id: former_group_ids).map(&:update_memberships_count)
     membership_requests.where("responded_at IS NULL").destroy_all
-  end
-
-  def deactivated?
-    deactivated_at.present?
-  end
-
-  def active?
-    deactivated_at.nil?
   end
 
   def reactivate!
@@ -275,10 +235,6 @@ class User < ActiveRecord::Base
   # http://stackoverflow.com/questions/5140643/how-to-soft-delete-user-with-devise/8107966#8107966
   def active_for_authentication?
     super && !deactivated_at
-  end
-
-  def inactive_message
-    I18n.t(:inactive_html, path_to_contact: '/contact').html_safe
   end
 
   def avatar_url(size=nil)
@@ -304,15 +260,7 @@ class User < ActiveRecord::Base
   end
 
   def locale
-    selected_locale || detected_locale
-  end
-
-  def using_initials?
-    avatar_kind == "initials"
-  end
-
-  def has_uploaded_image?
-    uploaded_avatar.url(:medium) != '/uploaded_avatars/medium/missing.png'
+    selected_locale || detected_locale || I18n.default_locale
   end
 
   def has_gravatar?(options = {})
@@ -331,20 +279,13 @@ class User < ActiveRecord::Base
     self.username ||= UsernameGenerator.new(self).generate
   end
 
-  def in_same_group_as?(other_user)
-    (group_ids & other_user.group_ids).present?
+  def send_devise_notification(notification, *args)
+    I18n.with_locale(locale) { devise_mailer.send(notification, self, *args).deliver_now }
   end
 
-  def belongs_to_manual_subscription_group?
-    groups.manual_subscription.any?
-  end
-
-  def show_start_group_button?
-    !groups.cannot_start_parent_group.any?
-  end
-
-  def is_organisation_coordinator?
-    adminable_groups.parents_only.any?
+  protected
+  def password_required?
+    !password.nil? || !password_confirmation.nil?
   end
 
   private

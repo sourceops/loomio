@@ -13,8 +13,8 @@ class OmniauthIdentity < ActiveRecord::Base
     case provider
     when 'facebook' then 'Facebook'
     when 'google' then 'Google'
-    when 'browser_id' then 'Persona'
     when 'twitter' then 'Twitter'
+    when 'github' then 'Github'
     else
       'Provider'
     end

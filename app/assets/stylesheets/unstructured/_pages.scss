@@ -1,6 +1,4 @@
 //= depend_on "link-icon.png"
-@import "marketing/color";
-@import "marketing/buttons";
 
 // CSS reset - does this exist elsewhere?
 ul, ol, li {
@@ -110,6 +108,7 @@ a.btn-icon:hover { color: $dark-grey; }
 .pages.about,
 .pages.blog,
 .pages.privacy,
+.pages.angular,
 .pages.services,
 .pages.terms_of_service,
 .pages.third_parties,
@@ -120,6 +119,8 @@ a.btn-icon:hover { color: $dark-grey; }
 .pages.crowd,
 .pages.wallets,
 .woc.index,
+.start_group,
+body.passwords,
 .we_the_people.index {
   color: black;
   background-color: $pages-background;
@@ -209,8 +210,6 @@ a.btn-icon:hover { color: $dark-grey; }
   .inner-container{
     padding: 34px;
   }
-
-  .pull-right { margin-top: 10px; }
 
   section{
     background: white;
@@ -429,6 +428,11 @@ body.pages.privacy .container h3.subheader { margin-bottom: 24px; }
         text-align: center;
         opacity: .9;
       }
+      .sign_up {
+        font-size: 18px;
+        font-weight: bold;
+        line-height: 24px;
+      }
     }
   }
     .input-options{
@@ -537,7 +541,7 @@ body.pages.translation {
     margin-bottom: 10px;
   }
   p.code { padding-left: 16px; }
-  td { padding: 5px 15px; }
+  td, th { padding: 5px 15px; }
 
   .progress {
     height: 5px;
@@ -545,6 +549,9 @@ body.pages.translation {
     margin: 0;
     border-radius: 0;
   }
+
+  th.beta-translation { color: #A9A9A9; }
+  .progress-bar.beta-translation { background-color: #A9A9A9; }
 
   tr.spacer-row {
     background-color: $lighter-grey;
@@ -620,10 +627,29 @@ body.pages.crowdfunding_celebration {
   h1{ padding-top: 1em; }
   ul{
     list-style: initial;
-    margin-left: 1em;
   }
   .content{
     margin-top: 0;
+  }
+}
+
+.pages.angular{
+  ul{
+    list-style: initial;
+    margin-left: 1.5em;
+  }
+
+  li {
+    font-size: 18px;
+    line-height: 24px;
+  }
+}
+
+body.start_group {
+  h2 {
+    font-size: 22px;
+    line-height: 32px;
+    font-weight: 300;
   }
 }
 

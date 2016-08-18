@@ -33,6 +33,28 @@ describe Motion do
     end
   end
 
+  describe "must close in future" do
+    let(:motion) { build(:motion, discussion: discussion) }
+    it "is invalid if closing in past" do
+      motion.closing_at = 1.day.ago
+      motion.valid?
+      expect(motion.errors.keys).to eq [:closing_at]
+    end
+
+    it "is valid if closing in future" do
+      motion.closing_at = 1.day.from_now
+      motion.valid?
+      expect(motion.errors.keys).to eq []
+    end
+
+    it "closing at can be in past if already closed" do
+      motion.closing_at = 1.day.ago
+      motion.closed_at = 1.day.ago
+      motion.valid?
+      expect(motion.errors.keys).to eq []
+    end
+  end
+
   describe "#user_has_voted?(user)" do
     it "returns true if the given user has voted on motion" do
       @user = create(:user)
@@ -49,15 +71,15 @@ describe Motion do
     before { @user = create(:user) }
     it "returns user's motions that match the query string" do
       motion = create(:motion, name: "jam toast", author: @user, discussion: discussion)
-      expect(@user.motions.search("jam")).to eq [motion]
+      expect(@user.motions.search("jam").result).to include motion
     end
     it "does not return discussions that don't belong to the user" do
       motion = create(:motion, name: "sandwich crumbs", discussion: discussion)
-      @user.motions.search("sandwich").should_not == [motion]
+      expect(@user.motions.search("sandwich").result).to_not include motion
     end
   end
 
-  describe "#members_not_voted_count" do
+  describe "#non_voters_count" do
     let(:motion) { create :motion, discussion: discussion }
 
     it "returns the number of members who did not vote" do
@@ -65,7 +87,7 @@ describe Motion do
       motion.group.add_member! user
       create :vote, :motion => motion, :position => "yes", :user => user
       motion.reload
-      expect(motion.members_not_voted_count).to eq motion.group_members.count - 1
+      expect(motion.non_voters_count).to eq motion.group_members.count - 1
     end
 
     it "still works if the same user votes multiple times" do
@@ -73,16 +95,23 @@ describe Motion do
       motion.group.add_member! user
       vote1 = create :vote, :motion => motion, :position => "yes", :user => user
       vote2 = create :vote, :motion => motion, :position => "no", :user => user
-      expect(motion.members_not_voted_count).to eq motion.group_members.count - 1
+      expect(motion.non_voters_count).to eq motion.group_members.count - 1
     end
 
     context "for a closed motion" do
-      before { MotionService.close(motion) }
+      before do
+        5.times { motion.group.add_member! create(:user) }
+        motion.group.reload
+        MotionService.close(motion)
+      end
 
       it "returns the number of members who did not vote" do
-        motion.should be_closed
-        motion.stub(:did_not_voters).and_return((1..99).to_a)
-        expect(motion.members_not_voted_count).to eq 99
+        expect(motion.closed?).to eq true
+        expect(motion.non_voters_count).to eq motion.group.members.count
+      end
+
+      it 'does not count members added after voting closed' do
+        expect { motion.group.add_member! create(:user) }.to_not change { motion.reload.non_voters_count }
       end
     end
   end
@@ -114,9 +143,16 @@ describe Motion do
     before do
       @motion = create(:motion, discussion: discussion)
     end
-    it "returns the pecentage of users that have voted" do
-      @motion.stub(:members_not_voted_count).and_return(10)
-      @motion.stub(:group_size_when_voting).and_return(20)
+    it "works when voting" do
+      @motion.voters_count = 10
+      @motion.group.memberships_count = 20
+      expect(@motion.percent_voted).to eq 50
+    end
+
+    it "works when closed" do
+      @motion.closed_at = Time.now
+      @motion.voters_count = 10
+      @motion.members_count = 20
       expect(@motion.percent_voted).to eq 50
     end
   end
@@ -148,6 +184,50 @@ describe Motion do
           expect(motion.abstain_votes_count).to eq 1
           expect(motion.block_votes_count).to eq 1
         end
+      end
+    end
+  end
+
+  describe 'mentioning' do
+    let(:motion) { build(:motion, description: "Hello @#{user.username}!") }
+    let(:user) { create(:user)  }
+    let(:another_user) { create(:user) }
+
+    describe '#mentionable_text' do
+      it 'stores the description as mentionable text' do
+        expect(motion.send(:mentionable_text)).to eq motion.description
+      end
+    end
+
+    describe 'mentionable_usernames' do
+      it 'can extract usernames' do
+        expect(motion.mentioned_usernames).to include user.username
+      end
+
+      it 'does not duplicate usernames' do
+        motion.description += " Goodbye @#{user.username}!"
+        expect(motion.mentioned_usernames).to eq [user.username]
+      end
+
+      it 'does not extract the authors username' do
+        motion.description = "Hello @#{motion.author.username}!"
+        expect(motion.mentioned_usernames).to_not include motion.author.username
+      end
+    end
+
+    describe 'mentioned_group_members' do
+      it 'includes members in the current group' do
+        motion.group.add_member! user
+        expect(motion.mentioned_group_members).to include user
+      end
+
+      it 'does not include members not in the group' do
+        expect(motion.mentioned_group_members).to_not include user
+      end
+
+      it 'does not include the motion author' do
+        motion.description = "Hello @#{motion.author.username}!"
+        expect(motion.mentioned_group_members).to_not include motion.author
       end
     end
   end

@@ -1,4 +1,4 @@
-en:  
+en:
   new_help:
     title: What can we help you with?
     how_loomio_works:
@@ -136,11 +136,11 @@ en:
       single_sign_on:
         title: Single sign-on
         body_html: |
-            <p>Loomio allows sign-up with Facebook, Google or Persona.
-            If you do not have a Loomio account you can sign up using any of these third-party services by clicking the corresponding button on the <a href="http://loomio.org/sign_in">Log in page</a>.
-            If you are currently logged in to Google, Facebook or Persona, this existing account will be detected.
+            <p>Loomio allows sign-up with Facebook, Google or Twitter.
+            If you do not have a Loomio account you can sign up using any of these third-party services by clicking the corresponding button on the <a href="http://loomio.org/users/sign_in">Log in page</a>.
+            If you are currently logged in to Google, Facebook or Twitter, this existing account will be detected.
             Otherwise you will be prompted to sign in. When Loomio recognises your existing third-party account, you will be required to follow the prompts to create your Loomio account.<p>
-            <p>You may also associate an existing Google, Facebook or Persona account with an existing Loomio account.
+            <p>You may also associate an existing Google, Facebook or Twitter account with an existing Loomio account.
             Ensure you are logged out, visit the <a href="https://www.loomio.org/users/sign_in">Log in page</a> and select your preferred platform.
             Loomio will ask you if you want to create a new account with your existing account on your chosen platform, or link it to your existing Loomio account.</p>
     group_settings:
@@ -739,9 +739,6 @@ en:
         body_html: |
           To find out what our developers are working on and what’s coming up in the development pipeline, take a look at our <a href="https://www.loomio.org/roadmap">public roadmap</a>.
           You can vote for the ideas you want to see prioritised, and comment with your feedback.
-      functional_group_size:
-        title: What size groups work well on Loomio?
-        body: Loomio currently works well for groups up to about 1000 people.
       search_for_private_group:
         title: 'How come when I search for a group I know exists, it doesn’t come up on the Explore page?'
         body: 'If the group you are searching for is private, then it will not be publicly searchable and an invitation will be required to join.'
@@ -773,74 +770,3 @@ en:
       feedback_link:  Have we missed something? Give us your feedback >
     back_to_top: ^ Back to top
     feedback_discussion: Think this explanation could be clearer? Give us your feedback >
-
-  help:
-    markdown:
-      intro:
-        title: |
-          What is markdown?
-          =================
-
-        body: |
-          Markdown is a way of writing plain text (left),
-          so that it can be converted to rich text (right).
-
-          This page is written in markdown to show how it works.
-
-      headers:
-        body: |
-          Headings: just underline with equals
-          ====================================
-
-          Or underline with dash
-          ----------------------
-      paragraphs:
-        title: |
-          Paragraphs
-          --------
-
-        body: |
-          You need
-          to put a
-          blank line
-          in between lines.
-
-          Or it will end up as one big paragraph!
-
-      emphasis:
-        title: |
-          Emphasis
-          --------
-
-        body: |
-          You can italicize a word with _underscore_ or *star*.
-
-          __Bold__ a word by doubling the **emphasis**.
-
-      lists:
-        title: |
-          Lists
-          -----
-
-        body: |
-          Here's how to make a list:
-
-          * leave a blank line before your list
-          * use stars (*)
-          * leave a space after the star
-
-      links:
-        title: |
-          Links and Images
-          ----------------
-
-        body: |
-          Repeat out loud:
-
-          Square brackets for name then round brackets for URL.
-
-          [Loomio Homepage](https://www.loomio.org/)
-
-          Images are the same, but prefixed with an exclamation mark.
-
-          ![loomio logo](https://i.imgur.com/Fvtworb.png)

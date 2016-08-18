@@ -44,7 +44,7 @@ describe UserService do
     it 'destroys spammy discussions in innocent groups' do
       expect(Discussion.exists?(spam_discussion_in_innocent_group.id)).to be false
     end
-    
+
     it 'destroys spammy comments in innocent groups' do
       expect(Comment.exists?(spam_comment.id)).to be false
     end

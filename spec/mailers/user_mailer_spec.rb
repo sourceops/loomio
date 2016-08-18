@@ -7,7 +7,7 @@ describe UserMailer do
     end
 
     it 'renders the sender email' do
-      expect(@mail.from).to eq ['notifications@loomio.org']
+      expect(@mail.from).to include BaseMailer::NOTIFICATIONS_EMAIL_ADDRESS
     end
   end
 
@@ -25,35 +25,25 @@ describe UserMailer do
     end
 
     it 'renders the subject' do
-      expect(@mail.subject).to eq "[Loomio: #{@group.full_name}] Membership approved"
+      expect(@mail.subject).to eq "Your request to join #{@group.full_name} on Loomio has been approved"
     end
 
     it 'assigns confirmation_url for email body' do
-      @mail.body.encoded.should match("http://localhost:3000/g/#{@group.key}")
+      @mail.body.encoded.should match(@group.key)
     end
 
-    it 'uses http links by default' do
-      expect(@mail.body.encoded).to match(/http:/)
-    end
-
-    it 'uses https links if action_mailer protocol is set to https' do
-      Loomio::Application.config.action_mailer.default_url_options[:protocol] = 'https'
-
-      @mail = UserMailer.group_membership_approved(@user, @group)
-      expect(@mail.body.encoded).to match(/https:/)
-    end
   end
 
   context 'sending email on being added to group' do
     before :each do
       @user = create(:user)
       @inviter = create(:user)
-      @group = build(:group, full_name: "Group full name")
+      @group = create(:group, full_name: "Group full name")
       @mail = UserMailer.added_to_group(user: @user, inviter: @inviter, group: @group)
     end
 
     it 'renders the subject' do
-      expect(@mail.subject).to eq "#{@inviter.name} has added you to #{@group.full_name}"
+      expect(@mail.subject).to eq "#{@inviter.name} has added you to #{@group.full_name} on Loomio"
     end
 
     it 'uses group.full_name in the email body' do
